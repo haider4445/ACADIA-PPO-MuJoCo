@@ -20,7 +20,6 @@ import logging
 
 logging.disable(logging.INFO)
 
-
 def main(params):
     override_params = copy.deepcopy(params)
     excluded_params = ['config_path', 'out_dir_prefix', 'num_episodes', 'row_id', 'exp_id',

@@ -11,7 +11,9 @@ import numpy as np
 import random
 from copy import deepcopy
 import gym
-from auto_LiRPA import BoundedModule
+sys.path.append("./auto_LiRPA")
+from auto_LiRPA.bound_general import BoundedModule
+#from auto_LiRPA import BoundedModule
 from auto_LiRPA.eps_scheduler import LinearScheduler
 from auto_LiRPA.bounded_tensor import BoundedTensor
 from auto_LiRPA.perturbations import PerturbationLpNorm
@@ -23,6 +25,8 @@ from .logging import *
 from multiprocessing import Process, Queue
 from .custom_env import Env
 from .convex_relaxation import get_kl_bound as get_state_kl_bound
+
+from .rfgsm import RFGSM
 
 class Trainer():
     '''
@@ -648,6 +652,7 @@ class Trainer():
 
         return to_ret
 
+
     """Conduct adversarial attack using value network."""
     def apply_attack(self, last_states):
         if self.params.ATTACK_RATIO < random.random():
@@ -659,6 +664,26 @@ class Trainer():
         else:
             eps = float(eps)
         steps = self.params.ATTACK_STEPS
+
+        # if perturbationType == "rfgsm" or perturbationType == "RFGSM" or perturbationType == "Rfgsmt":
+        #     rfgsmIns = RFGSM(model = net, targeted = targeted, steps = stepsRFGSM, eps = epsRFGSM, alpha = alphaRFGSM)
+        # elif perturbationType == "fgsm" or perturbationType == "FGSM":
+        #     rfgsmIns = FGSM(model = net, targeted = targeted, eps = epsFGSM)
+        # elif perturbationType == "cw" or perturbationType == "CW":
+        #     rfgsmIns = CW(model = net, targeted = targeted, steps = stepsCW)
+        # elif perturbationType == "difgsm" or perturbationType == "DIFGSM":
+        #     rfgsmIns = DIFGSM(model = net, targeted = targeted, steps = stepsDIFGSM, eps = epsDIFGSM, alpha = alphaDIFGSM)
+        # elif perturbationType == "ifgsm" or perturbationType == "IFGSM":
+        #     rfgsmIns = IFGSM(model = net, targeted = targeted, steps = stepsIFGSM, eps = epsIFGSM, alpha = alphaIFGSM)
+        # elif perturbationType == "mifgsm" or perturbationType == "MIFGSM":
+        #     rfgsmIns = MIFGSM(model = net, targeted = targeted, steps = stepsMIFGSM, eps = epsMIFGSM, alpha = alphaMIFGSM, decay = decayMIFGSM)
+        # elif perturbationType == "mrfgsm" or perturbationType == "MRFGSM":
+        #     rfgsmIns = MRFGSM(model = net, targeted = targeted, steps = stepsMRFGSM, eps = epsMRFGSM, alpha = alphaMRFGSM, decay = decayMRFGSM)
+        # elif perturbationType == "dmrifgsm" or perturbationType == "DMRIFGSM":
+        #     rfgsmIns = DMRIFGSM(model = net, targeted = targeted, steps = stepsDMRIFGSM, eps = epsDMRIFGSM, alpha = alphaDMRIFGSM, decay = decayDMRIFGSM, random_start = randomStartDMRIFGSM)                       
+        # elif perturbationType == "pgd" or perturbationType == "PGD":
+        #     rfgsmIns = PGD(model = net, targeted = targeted, steps = stepsPGD, eps = epsPGD, alpha = alphaPGD)
+
         if self.params.ATTACK_METHOD == "critic":
             # Find a state that is close the last_states and decreases value most.
             if steps > 0:
@@ -675,6 +700,9 @@ class Trainer():
                     for i in range(steps):
                         states = states.clone().detach().requires_grad_()
                         value = self.val_model(states).mean(dim=1)
+                        print('--------------')
+                        print(value)
+                        print('---------------')
                         value.backward()
                         update = states.grad.sign() * step_eps
                         # Clamp to +/- eps.
@@ -1211,6 +1239,13 @@ class Trainer():
             # Unroll the trajectories (actors, T, ...) -> (actors*T, ...)
         return ep_length, ep_reward, actions.cpu().numpy(), action_means.cpu().numpy(), states.cpu().numpy(), kl_upper_bound
 
+    def apply_gradient_attack(self,last_states):
+        next_actions = self.policy_model(last_states)[0]
+        #next_actions = self.policy_model.sample(next_actions)
+        #next_actions = next_actions.unsqueeze(1)
+        rfgsmIns = RFGSM(model = self.policy_model, targeted = 0, steps = 15, eps = 0.062, alpha = 0.031)
+        return rfgsmIns.forward(last_states,next_actions)
+
     def run_test_trajectories(self, max_len, should_tqdm=False):
         # Arrays to be updated with historic info
         envs = self.envs
@@ -1254,7 +1289,9 @@ class Trainer():
             if hasattr(self, "imit_network"):
                 self.imit_network.pause_history()
             
-            maybe_attacked_last_states = self.apply_attack(last_states)
+            #maybe_attacked_last_states = self.apply_attack(last_states)
+            #maybe_attacked_last_states = last_states
+            maybe_attacked_last_states = self.apply_gradient_attack(last_states)
             
             self.policy_model.continue_history()
             self.val_model.continue_history()
