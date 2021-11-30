@@ -74,5 +74,12 @@
     "value_calc": "gae",
     "value_clipping": true,
     "value_multiplier": 0.1,
-    "value_net_type": "ValueNet"
+    "value_net_type": "ValueNet",
+    "perturbationType": "MRFGSM",
+    "steps": 20,
+    "eps": 0.031,
+    "alpha": 0.007,
+    "decay": 1.0,
+    "targeted": 0,
+    "totalEpisodes": 10
 }

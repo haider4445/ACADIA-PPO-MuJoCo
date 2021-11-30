@@ -21,6 +21,7 @@ import logging
 logging.disable(logging.INFO)
 
 def main(params):
+    params['num_episodes'] = params['totalEpisodes']
     override_params = copy.deepcopy(params)
     excluded_params = ['config_path', 'out_dir_prefix', 'num_episodes', 'row_id', 'exp_id',
             'load_model', 'seed', 'deterministic', 'noise_factor', 'compute_kl_cert', 'use_full_backward', 'sqlite_path', 'early_terminate']
@@ -151,7 +152,7 @@ def main(params):
         print('\n\n'+'Start collecting data\n'+'-'*80)
         for i in range(num_episodes):
             print('Collecting %d / %d episodes' % (i+1, num_episodes))
-            ep_length, ep_reward, actions, action_means, states, kl_certificates = p.run_test(compute_bounds=params['compute_kl_cert'], use_full_backward=params['use_full_backward'], original_stdev=original_stdev)
+            ep_length, ep_reward, actions, action_means, states, kl_certificates = p.run_test(params, compute_bounds=params['compute_kl_cert'], use_full_backward=params['use_full_backward'], original_stdev=original_stdev)
             not_dones = np.ones(len(actions))
             not_dones[-1] = 0
             if i == 0:
@@ -179,7 +180,7 @@ def main(params):
         
         for i in range(num_episodes):
             print('Episode %d / %d' % (i+1, num_episodes))
-            ep_length, ep_reward, actions, action_means, states, kl_certificates = p.run_test(compute_bounds=params['compute_kl_cert'], use_full_backward=params['use_full_backward'], original_stdev=original_stdev)
+            ep_length, ep_reward, actions, action_means, states, kl_certificates = p.run_test(params, compute_bounds=params['compute_kl_cert'], use_full_backward=params['use_full_backward'], original_stdev=original_stdev)
             if i == 0:
                 all_actions = actions.copy()
                 all_states = states.copy()
@@ -257,7 +258,7 @@ def main(params):
         print('\n')
         print('all rewards:', all_rewards)
         print('rewards stats:\nmean: {}, std:{}, min:{}, max:{}'.format(mean_reward, std_reward, min_reward, max_reward))
-          
+        print('Perturbation Type', params['perturbationType'])
 
 def get_parser():
     parser = argparse.ArgumentParser(description='Generate experiments to be run.')
@@ -267,7 +268,7 @@ def get_parser():
                         help='prefix for output log path')
     parser.add_argument('--exp-id', type=str, help='experiement id for testing', default='')
     parser.add_argument('--row-id', type=int, help='which row of the table to use', default=-1)
-    parser.add_argument('--num-episodes', type=int, help='number of episodes for testing', default=50)
+    parser.add_argument('--num-episodes', type=int, help='number of episodes for testing', default=10)
     parser.add_argument('--compute-kl-cert', action='store_true', help='compute KL certificate')
     parser.add_argument('--use-full-backward', action='store_true', help='Use full backward LiRPA bound for computing certificates')
     parser.add_argument('--deterministic', action='store_true', help='disable Gaussian noise in action for evaluation')
@@ -287,6 +288,15 @@ def get_parser():
     # Other configs
     parser.add_argument('--sqlite-path', type=str, help='save results to a sqlite database.', default='')
     parser.add_argument('--early-terminate', action='store_true', help='terminate attack early if low attack reward detected in sqlite.')
+    #gradient based attacks
+    parser.add_argument('--steps', nargs = "?", default = 100, type = int, help = "Number of steps ")
+    parser.add_argument('--alpha', nargs = "?", default = 2/255, type = float, help = "Alpha (Step Size)")
+    parser.add_argument('--eps', nargs = "?", default = 8/255, type = float, help = "Epsilon (strength)")
+    parser.add_argument('--decay', nargs = "?", default = 1.0, type = float, help = "Decay factor")
+    parser.add_argument('-p','--perturbationType', nargs="?", default="DynamicHybrid", type = str, help = 'Perturbation Type: fgsm, rfgsm, cw, mrfgsm, pgd, mifgsm, difgsm')
+    parser.add_argument('--targeted', nargs = "?", default = 0, type = int, help = "0 or 1")
+    parser.add_argument('--totalEpisodes', nargs = "?", default = 5, type = int, help = "total games/episodes")
+
     parser = add_common_parser_opts(parser)
     
     return parser

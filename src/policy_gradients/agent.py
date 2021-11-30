@@ -27,6 +27,14 @@ from .custom_env import Env
 from .convex_relaxation import get_kl_bound as get_state_kl_bound
 
 from .rfgsm import RFGSM
+from .fgsm import FGSM
+from .mifgsm import MIFGSM
+from .mrfgsm import MRFGSM
+from .difgsm import DIFGSM
+from .fgsm import FGSM
+from .pgd import PGD
+from .cw import CW
+from .dynamicHeuristic import DynamicHeuristic
 
 class Trainer():
     '''
@@ -665,25 +673,6 @@ class Trainer():
             eps = float(eps)
         steps = self.params.ATTACK_STEPS
 
-        # if perturbationType == "rfgsm" or perturbationType == "RFGSM" or perturbationType == "Rfgsmt":
-        #     rfgsmIns = RFGSM(model = net, targeted = targeted, steps = stepsRFGSM, eps = epsRFGSM, alpha = alphaRFGSM)
-        # elif perturbationType == "fgsm" or perturbationType == "FGSM":
-        #     rfgsmIns = FGSM(model = net, targeted = targeted, eps = epsFGSM)
-        # elif perturbationType == "cw" or perturbationType == "CW":
-        #     rfgsmIns = CW(model = net, targeted = targeted, steps = stepsCW)
-        # elif perturbationType == "difgsm" or perturbationType == "DIFGSM":
-        #     rfgsmIns = DIFGSM(model = net, targeted = targeted, steps = stepsDIFGSM, eps = epsDIFGSM, alpha = alphaDIFGSM)
-        # elif perturbationType == "ifgsm" or perturbationType == "IFGSM":
-        #     rfgsmIns = IFGSM(model = net, targeted = targeted, steps = stepsIFGSM, eps = epsIFGSM, alpha = alphaIFGSM)
-        # elif perturbationType == "mifgsm" or perturbationType == "MIFGSM":
-        #     rfgsmIns = MIFGSM(model = net, targeted = targeted, steps = stepsMIFGSM, eps = epsMIFGSM, alpha = alphaMIFGSM, decay = decayMIFGSM)
-        # elif perturbationType == "mrfgsm" or perturbationType == "MRFGSM":
-        #     rfgsmIns = MRFGSM(model = net, targeted = targeted, steps = stepsMRFGSM, eps = epsMRFGSM, alpha = alphaMRFGSM, decay = decayMRFGSM)
-        # elif perturbationType == "dmrifgsm" or perturbationType == "DMRIFGSM":
-        #     rfgsmIns = DMRIFGSM(model = net, targeted = targeted, steps = stepsDMRIFGSM, eps = epsDMRIFGSM, alpha = alphaDMRIFGSM, decay = decayDMRIFGSM, random_start = randomStartDMRIFGSM)                       
-        # elif perturbationType == "pgd" or perturbationType == "PGD":
-        #     rfgsmIns = PGD(model = net, targeted = targeted, steps = stepsPGD, eps = epsPGD, alpha = alphaPGD)
-
         if self.params.ATTACK_METHOD == "critic":
             # Find a state that is close the last_states and decreases value most.
             if steps > 0:
@@ -1213,14 +1202,14 @@ class Trainer():
         self.n_steps += 1
         return avg_ep_reward
 
-    def run_test(self, max_len=2048, compute_bounds=False, use_full_backward=False, original_stdev=None):
+    def run_test(self, params, max_len=2048, compute_bounds=False, use_full_backward=False, original_stdev=None):
         print("-" * 80)
         start_time = time.time()
         if compute_bounds and not hasattr(self, "relaxed_policy_model"):
             self.create_relaxed_model()
         #saps, avg_ep_reward, avg_ep_length = self.collect_saps(num_saps=None, should_log=True, test=True, num_episodes=num_episodes)
         with torch.no_grad():
-            output = self.run_test_trajectories(max_len=max_len)
+            output = self.run_test_trajectories(params, max_len=max_len)
             ep_length, ep_reward, actions, action_means, states = output
             msg = "Episode reward: %f | episode length: %f"
             print(msg % (ep_reward, ep_length))
@@ -1239,14 +1228,41 @@ class Trainer():
             # Unroll the trajectories (actors, T, ...) -> (actors*T, ...)
         return ep_length, ep_reward, actions.cpu().numpy(), action_means.cpu().numpy(), states.cpu().numpy(), kl_upper_bound
 
-    def apply_gradient_attack(self,last_states):
+    def apply_gradient_attack(self,last_states, params):
         next_actions = self.policy_model(last_states)[0]
-        #next_actions = self.policy_model.sample(next_actions)
-        #next_actions = next_actions.unsqueeze(1)
-        rfgsmIns = RFGSM(model = self.policy_model, targeted = 0, steps = 15, eps = 0.062, alpha = 0.031)
+
+        net = self.policy_model
+        targeted = params['targeted']
+        steps = params['steps']
+        eps = params['eps']
+        alpha = params['alpha']
+        decay = params['decay']
+        perturbationType = params['perturbationType']
+
+        if perturbationType == "rfgsm" or perturbationType == "RFGSM" or perturbationType == "Rfgsmt":
+            rfgsmIns = RFGSM(model = net, targeted = targeted, steps = steps, eps = eps, alpha = alpha)
+        elif perturbationType == "fgsm" or perturbationType == "FGSM":
+            rfgsmIns = FGSM(model = net, targeted = targeted, eps = eps)
+        elif perturbationType == "DynamicHeuristic" or perturbationType == "dynamicHeuristic":
+            eps = random.choice([-0.0039, -0.0078, -0.012, -0.015,0.0039, 0.0078, 0.012, 0.015,0.0196,0.023,0.027,0.031])
+            rfgsmIns = DynamicHeuristic(model = net, targeted = targeted, eps = eps)
+        elif perturbationType == "DynamicHybrid" or perturbationType == "dynamicHybrid":
+            params['perturbationType'] = random.choice(['fgsm', 'cw'])
+            return self.apply_gradient_attack(last_states,params)
+        elif perturbationType == "cw" or perturbationType == "CW":
+            rfgsmIns = CW(model = net, targeted = targeted, steps = steps)
+        elif perturbationType == "difgsm" or perturbationType == "DIFGSM":
+            rfgsmIns = DIFGSM(model = net, targeted = targeted, steps = steps, eps = eps, alpha = alpha)
+        elif perturbationType == "mifgsm" or perturbationType == "MIFGSM":
+            rfgsmIns = MIFGSM(model = net, targeted = targeted, steps = steps, eps = eps, alpha = alpha, decay = decay)
+        elif perturbationType == "mrfgsm" or perturbationType == "MRFGSM":
+            rfgsmIns = MRFGSM(model = net, targeted = targeted, steps = steps, eps = eps, alpha = alpha, decay = decay)
+        elif perturbationType == "pgd" or perturbationType == "PGD":
+            rfgsmIns = PGD(model = net, targeted = targeted, steps = steps, eps = eps, alpha = alpha)
+
         return rfgsmIns.forward(last_states,next_actions)
 
-    def run_test_trajectories(self, max_len, should_tqdm=False):
+    def run_test_trajectories(self, params, max_len, should_tqdm=False):
         # Arrays to be updated with historic info
         envs = self.envs
         initial_states = self.reset_envs(envs)
@@ -1291,7 +1307,8 @@ class Trainer():
             
             #maybe_attacked_last_states = self.apply_attack(last_states)
             #maybe_attacked_last_states = last_states
-            maybe_attacked_last_states = self.apply_gradient_attack(last_states)
+            params['perturbationType'] = 'DynamicHybrid'
+            maybe_attacked_last_states = self.apply_gradient_attack(last_states, params)
             
             self.policy_model.continue_history()
             self.val_model.continue_history()
