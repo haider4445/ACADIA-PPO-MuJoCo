@@ -35,6 +35,7 @@ from .fgsm import FGSM
 from .pgd import PGD
 from .cw import CW
 from .dynamicHeuristic import DynamicHeuristic
+from sklearn.metrics import mean_absolute_error
 
 class Trainer():
     '''
@@ -1210,7 +1211,7 @@ class Trainer():
         #saps, avg_ep_reward, avg_ep_length = self.collect_saps(num_saps=None, should_log=True, test=True, num_episodes=num_episodes)
         with torch.no_grad():
             output = self.run_test_trajectories(params, max_len=max_len)
-            ep_length, ep_reward, actions, action_means, states = output
+            ep_length, ep_reward, actions, action_means, states, attack_times_perEpisode, successesPerEpisode = output
             msg = "Episode reward: %f | episode length: %f"
             print(msg % (ep_reward, ep_length))
             if compute_bounds:
@@ -1226,10 +1227,9 @@ class Trainer():
             else:
                 kl_upper_bound = float("nan")
             # Unroll the trajectories (actors, T, ...) -> (actors*T, ...)
-        return ep_length, ep_reward, actions.cpu().numpy(), action_means.cpu().numpy(), states.cpu().numpy(), kl_upper_bound
+        return ep_length, ep_reward, actions.cpu().numpy(), action_means.cpu().numpy(), states.cpu().numpy(), kl_upper_bound, attack_times_perEpisode, successesPerEpisode
 
-    def apply_gradient_attack(self,last_states, params):
-        next_actions = self.policy_model(last_states)[0]
+    def apply_gradient_attack(self,last_states, params, next_actions):
 
         net = self.policy_model
         targeted = params['targeted']
@@ -1259,8 +1259,20 @@ class Trainer():
             rfgsmIns = MRFGSM(model = net, targeted = targeted, steps = steps, eps = eps, alpha = alpha, decay = decay)
         elif perturbationType == "pgd" or perturbationType == "PGD":
             rfgsmIns = PGD(model = net, targeted = targeted, steps = steps, eps = eps, alpha = alpha)
+        start_attack = time.time()
+        adv_states = rfgsmIns.forward(last_states,next_actions)
+        time_taken = time.time() - start_attack
+        return adv_states, time_taken
 
-        return rfgsmIns.forward(last_states,next_actions)
+    def compute_success(self, true_actions, action_pds, threshold):
+        threshold = 0.3
+        MAE = mean_absolute_error(true_actions, action_pds)
+        if MAE > threshold:
+            return 1
+        else:
+            return 0
+
+
 
     def run_test_trajectories(self, params, max_len, should_tqdm=False):
         # Arrays to be updated with historic info
@@ -1290,7 +1302,8 @@ class Trainer():
 
         states[:, 0, :] = initial_states
         last_states = states[:, 0, :]
-        
+        attack_times_perEpisode = []
+        successesPerEpisode = []
         for t in iterator:
             if (t+1) % 100 == 0:
                 print('Step {} '.format(t+1))
@@ -1307,15 +1320,20 @@ class Trainer():
             
             #maybe_attacked_last_states = self.apply_attack(last_states)
             #maybe_attacked_last_states = last_states
-            params['perturbationType'] = 'DynamicHybrid'
-            maybe_attacked_last_states = self.apply_gradient_attack(last_states, params)
-            
+            #params['perturbationType'] = 'DynamicHybrid'
+            true_actions = self.policy_model(last_states)[0]
+            maybe_attacked_last_states, time_taken = self.apply_gradient_attack(last_states, params, true_actions)
+            attack_times_perEpisode.append(time_taken)
             self.policy_model.continue_history()
             self.val_model.continue_history()
             if hasattr(self, "imit_network"):
                 self.imit_network.continue_history()
 
             action_pds = self.policy_model(maybe_attacked_last_states)
+            params['threshold'] = 0.1
+            successesPerEpisode.append(self.compute_success(true_actions, action_pds[0], params['threshold']))
+
+
             if hasattr(self, "imit_network"):
                 _ = self.imit_network(maybe_attacked_last_states) 
             
@@ -1378,7 +1396,7 @@ class Trainer():
         action_means = action_means[0][:t+1]
         states = states[0][:t+1]
 
-        to_ret = (ep_length, ep_reward, actions, action_means, states)
+        to_ret = (ep_length, ep_reward, actions, action_means, states,attack_times_perEpisode, successesPerEpisode)
         
         
         return to_ret

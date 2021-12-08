@@ -177,10 +177,13 @@ def main(params):
         all_rewards = []
         all_lens = []
         all_kl_certificates = []
-        
+        attack_times = []
+        Successes = []
         for i in range(num_episodes):
             print('Episode %d / %d' % (i+1, num_episodes))
-            ep_length, ep_reward, actions, action_means, states, kl_certificates = p.run_test(params, compute_bounds=params['compute_kl_cert'], use_full_backward=params['use_full_backward'], original_stdev=original_stdev)
+            ep_length, ep_reward, actions, action_means, states, kl_certificates, attack_times_perEpisode, successesPerEpisode = p.run_test(params, compute_bounds=params['compute_kl_cert'], use_full_backward=params['use_full_backward'], original_stdev=original_stdev)
+            attack_times += attack_times_perEpisode
+            Successes += successesPerEpisode
             if i == 0:
                 all_actions = actions.copy()
                 all_states = states.copy()
@@ -206,7 +209,10 @@ def main(params):
                     print('terminating early!')
                     early_terminate = True
                     break
-                
+        attack_times = np.array(attack_times)
+        average_state_P_time = sum(attack_times)/len(attack_times)
+        average_state_P_time = np.mean(attack_times, axis = 0)
+        average_state_P_time_std = np.std(attack_times, axis = 0)                
     
         attack_dir = 'attack-{}-eps-{}'.format(params['attack_method'], params['attack_eps'])
         if 'sarsa' in params['attack_method']:
@@ -259,6 +265,10 @@ def main(params):
         print('all rewards:', all_rewards)
         print('rewards stats:\nmean: {}, std:{}, min:{}, max:{}'.format(mean_reward, std_reward, min_reward, max_reward))
         print('Perturbation Type', params['perturbationType'])
+        print("Average One Perturbed state generation time: %f seconds" % average_state_P_time)
+        print("STD One Perturbed state generation time: %f seconds" % average_state_P_time_std)
+        successRate = np.sum(Successes)/len(Successes)
+        print("Success rate: %.2f" % successRate)
 
 def get_parser():
     parser = argparse.ArgumentParser(description='Generate experiments to be run.')
@@ -289,13 +299,13 @@ def get_parser():
     parser.add_argument('--sqlite-path', type=str, help='save results to a sqlite database.', default='')
     parser.add_argument('--early-terminate', action='store_true', help='terminate attack early if low attack reward detected in sqlite.')
     #gradient based attacks
-    parser.add_argument('--steps', nargs = "?", default = 100, type = int, help = "Number of steps ")
+    parser.add_argument('--steps', nargs = "?", default = 1000, type = int, help = "Number of steps ")
     parser.add_argument('--alpha', nargs = "?", default = 2/255, type = float, help = "Alpha (Step Size)")
     parser.add_argument('--eps', nargs = "?", default = 8/255, type = float, help = "Epsilon (strength)")
     parser.add_argument('--decay', nargs = "?", default = 1.0, type = float, help = "Decay factor")
-    parser.add_argument('-p','--perturbationType', nargs="?", default="DynamicHybrid", type = str, help = 'Perturbation Type: fgsm, rfgsm, cw, mrfgsm, pgd, mifgsm, difgsm')
+    parser.add_argument('-p','--perturbationType', nargs="?", default="cw", type = str, help = 'Perturbation Type: fgsm, rfgsm, cw, mrfgsm, pgd, mifgsm, difgsm')
     parser.add_argument('--targeted', nargs = "?", default = 0, type = int, help = "0 or 1")
-    parser.add_argument('--totalEpisodes', nargs = "?", default = 5, type = int, help = "total games/episodes")
+    parser.add_argument('--totalEpisodes', nargs = "?", default = 2, type = int, help = "total games/episodes")
 
     parser = add_common_parser_opts(parser)
     
